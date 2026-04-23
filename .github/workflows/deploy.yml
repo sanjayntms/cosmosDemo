@@ -1,0 +1,73 @@
+name: Provision and Deploy Multi-Region App Services
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch: 
+
+env:
+  DOTNET_VERSION: '8.0.x'
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    
+    # The matrix allows parallel execution for both regions
+    strategy:
+      matrix:
+        target:
+          - location: 'centralindia'
+            rg: 'rg-cosmosdemo-india'
+            plan: 'asp-cosmosdemo-india'
+            app: 'app-cosmosdemo-india-unique123' # UPDATE THIS to be globally unique
+            app_region: 'Central India'
+          - location: 'australiaeast'
+            rg: 'rg-cosmosdemo-aus'
+            plan: 'asp-cosmosdemo-aus'
+            app: 'app-cosmosdemo-aus-unique123'   # UPDATE THIS to be globally unique
+            app_region: 'Australia East'
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET Core
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Build and Publish .NET App
+        run: dotnet publish -c Release -o ./publish_output
+
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Provision Infrastructure & Set Env Variables
+        uses: azure/cli@v2
+        with:
+          azcliversion: latest
+          inlineScript: |
+            echo "1. Creating Resource Group..."
+            az group create --name ${{ matrix.target.rg }} --location ${{ matrix.target.location }}
+
+            echo "2. Creating Linux App Service Plan (B1 Tier)..."
+            az appservice plan create --name ${{ matrix.target.plan }} --resource-group ${{ matrix.target.rg }} --sku B1 --is-linux
+
+            echo "3. Creating Web App..."
+            az webapp create --name ${{ matrix.target.app }} --resource-group ${{ matrix.target.rg }} --plan ${{ matrix.target.plan }} --runtime "DOTNETCORE|8.0"
+
+            echo "4. Injecting App Settings (Environment Variables)..."
+            az webapp config appsettings set --name ${{ matrix.target.app }} --resource-group ${{ matrix.target.rg }} --settings \
+              COSMOS_ENDPOINT="${{ secrets.COSMOS_ENDPOINT }}" \
+              COSMOS_KEY="${{ secrets.COSMOS_KEY }}" \
+              APP_REGION="${{ matrix.target.app_region }}" \
+              DATABASE_NAME="DemoDB" \
+              CONTAINER_NAME="DemoContainer"
+
+      - name: Deploy Code to App Service
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ matrix.target.app }}
+          package: ./publish_output
