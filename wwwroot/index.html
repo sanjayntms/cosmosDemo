@@ -49,38 +49,45 @@
 </div>
 
 <script>
-    // Get the region hosting this instance
     fetch('/api/info')
         .then(res => res.json())
-        .then(data => { 
-            document.getElementById('region-badge').innerText = "📍 Server Region: " + data.appServiceRegion; 
-        });
+        .then(data => { document.getElementById('region-badge').innerText = "📍 Server Region: " + data.appServiceRegion; });
 
-    // Cast a vote to the local Cosmos replica
     async function castVote(player) {
         await fetch(`/api/vote/${encodeURIComponent(player)}`, { method: 'POST' });
-        fetchResults(); // Instantly update local table
+        fetchResults(); 
     }
 
-    // Fetch aggregated results and render the HTML table
+    // Keep track of old totals to detect changes
+    let previousVotes = {};
+
     async function fetchResults() {
         const res = await fetch('/api/results');
         const data = await res.json();
         
         const tbody = document.getElementById('resultsBody');
-        tbody.innerHTML = ''; // Clear current rows
+        tbody.innerHTML = ''; 
 
         if (data.length === 0) {
             tbody.innerHTML = '<tr><td colspan="2" style="text-align: center;">No votes yet!</td></tr>';
             return;
         }
 
-        // Sort by highest votes
         data.sort((a, b) => b.votes - a.votes);
 
         data.forEach(item => {
             const tr = document.createElement('tr');
             
+            // Check if this specific player's vote count went up
+            const didChange = previousVotes[item.playerName] !== undefined && previousVotes[item.playerName] !== item.votes;
+            
+            // If it changed, add a temporary visual highlight
+            if (didChange) {
+                tr.style.backgroundColor = '#d4edda'; // Light green flash
+                tr.style.transition = 'background-color 0.5s ease';
+                setTimeout(() => { tr.style.backgroundColor = 'transparent'; }, 800);
+            }
+
             const tdName = document.createElement('td');
             tdName.innerText = item.playerName;
             
@@ -91,12 +98,15 @@
             tr.appendChild(tdName);
             tr.appendChild(tdVotes);
             tbody.appendChild(tr);
+
+            // Update the tracker
+            previousVotes[item.playerName] = item.votes;
         });
     }
 
-    // Auto-refresh the HTML table every 2 seconds to show cross-region replication
-    setInterval(fetchResults, 2000);
-    fetchResults(); // Initial load
+    // Check for updates much faster (every half second)
+    setInterval(fetchResults, 500);
+    fetchResults(); 
 </script>
 
 </body>
