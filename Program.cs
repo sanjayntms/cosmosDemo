@@ -1,82 +1,66 @@
 using Microsoft.Azure.Cosmos;
-using System.Diagnostics;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// 1. Read Infrastructure Configuration (Set these in App Service Settings via Terraform)
+// Configuration
 var endpoint = builder.Configuration["COSMOS_ENDPOINT"];
 var key = builder.Configuration["COSMOS_KEY"];
-var appRegion = builder.Configuration["APP_REGION"]; // e.g., "Australia East" or "Central India"
+var appRegion = builder.Configuration["APP_REGION"] ?? "Local";
 var databaseId = builder.Configuration["DATABASE_NAME"] ?? "DemoDB";
 var containerId = builder.Configuration["CONTAINER_NAME"] ?? "DemoContainer";
 
-// 2. Configure Cosmos Client for Local Region
-var cosmosClientOptions = new CosmosClientOptions
-{
-    // THIS IS CRITICAL: It forces the App Service to read/write to its local Cosmos replica
-    ApplicationRegion = appRegion, 
-};
-
+// Cosmos Client Setup with Region Affinity
+var cosmosClientOptions = new CosmosClientOptions { ApplicationRegion = appRegion };
 var cosmosClient = new CosmosClient(endpoint, key, cosmosClientOptions);
 builder.Services.AddSingleton(cosmosClient);
 
 var app = builder.Build();
 
-// Serve the frontend UI
 app.UseStaticFiles();
 app.MapGet("/", () => Results.Content(File.ReadAllText("wwwroot/index.html"), "text/html"));
+app.MapGet("/api/info", () => Results.Ok(new { AppServiceRegion = appRegion }));
 
-// API: Get Current Region Info
-app.MapGet("/api/info", () =>
-{
-    return Results.Ok(new { AppServiceRegion = appRegion });
-});
-
-// API: Write Document & Measure Latency
-app.MapPost("/api/write", async (CosmosClient client) =>
+// API: Submit a Vote
+app.MapPost("/api/vote/{player}", async (CosmosClient client, string player) =>
 {
     var container = client.GetContainer(databaseId, containerId);
-    var id = Guid.NewGuid().ToString();
     
-    // Create a dummy payload
-    var doc = new { id = id, message = $"Written from {appRegion}", timestamp = DateTime.UtcNow };
-
-    var stopwatch = Stopwatch.StartNew();
-    var response = await container.CreateItemAsync(doc, new PartitionKey(id));
-    stopwatch.Stop();
-
-    return Results.Ok(new {
-        Id = id,
-        LatencyMs = stopwatch.ElapsedMilliseconds,
-        Region = appRegion
-    });
+    // We use a static partition key for this PoC so we can easily query and count all votes
+    var doc = new { 
+        id = Guid.NewGuid().ToString(), 
+        partitionKey = "IndVsNzFinal", 
+        playerName = player, 
+        region = appRegion, 
+        timestamp = DateTime.UtcNow 
+    };
+    
+    await container.CreateItemAsync(doc, new PartitionKey("IndVsNzFinal"));
+    return Results.Ok();
 });
 
-// API: Read Document & Measure Latency
-app.MapGet("/api/read/{id}", async (CosmosClient client, string id) =>
+// API: Get Aggregated Results
+app.MapGet("/api/results", async (CosmosClient client) =>
 {
     var container = client.GetContainer(databaseId, containerId);
-    var stopwatch = Stopwatch.StartNew();
-    try 
+    
+    // Aggregate votes directly in the database
+    var query = new QueryDefinition(
+        "SELECT c.playerName, COUNT(1) as votes FROM c WHERE c.partitionKey = 'IndVsNzFinal' GROUP BY c.playerName"
+    );
+    
+    var iterator = container.GetItemQueryIterator<dynamic>(
+        query, 
+        requestOptions: new QueryRequestOptions { PartitionKey = new PartitionKey("IndVsNzFinal") }
+    );
+    
+    var results = new List<dynamic>();
+    while (iterator.HasMoreResults)
     {
-        var response = await container.ReadItemAsync<dynamic>(id, new PartitionKey(id));
-        stopwatch.Stop();
-        
-        return Results.Ok(new {
-            Id = id,
-            LatencyMs = stopwatch.ElapsedMilliseconds,
-            Region = appRegion,
-            Data = response.Resource
-        });
-    } 
-    catch (CosmosException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound) 
-    {
-        stopwatch.Stop();
-        return Results.NotFound(new { 
-            Message = "Document not found or not replicated yet.", 
-            LatencyMs = stopwatch.ElapsedMilliseconds 
-        });
+        var response = await iterator.ReadNextAsync();
+        results.AddRange(response);
     }
+    
+    return Results.Ok(results);
 });
 
 app.Run();

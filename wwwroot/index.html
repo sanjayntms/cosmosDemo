@@ -3,66 +3,101 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cosmos DB Multi-Region PoC</title>
+    <title>Live Player of the Match Poll</title>
     <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; background: #f3f2f1; }
-        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); max-width: 600px; margin: auto; }
-        button { background: #0078d4; color: white; border: none; padding: 10px 15px; cursor: pointer; border-radius: 4px; margin-right: 10px;}
-        button:hover { background: #106ebe; }
-        .log { background: #1e1e1e; color: #d4d4d4; padding: 15px; border-radius: 4px; margin-top: 15px; font-family: monospace; white-space: pre-wrap; }
-        h2 { color: #323130; }
-        .region-badge { display: inline-block; padding: 5px 10px; background: #e1dfdd; border-radius: 12px; font-weight: bold; margin-bottom: 20px;}
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f0f2f5; padding: 20px; color: #333; }
+        .container { max-width: 600px; margin: auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        h1 { text-align: center; margin-top: 0; color: #1a365d; }
+        .region-badge { display: block; text-align: center; margin-bottom: 25px; font-weight: bold; color: #555; }
+        
+        .vote-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 30px; }
+        button { background: #00468c; color: white; border: none; padding: 15px; font-size: 16px; border-radius: 8px; cursor: pointer; font-weight: bold; transition: background 0.2s;}
+        button:hover { background: #003366; }
+        button:active { transform: scale(0.98); }
+
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
+        th { background-color: #f8f9fa; font-weight: bold; }
+        .vote-count { font-weight: bold; color: #00468c; font-size: 18px; }
     </style>
 </head>
 <body>
-    <div class="card">
-        <h2>Multi-Region R/W Demo</h2>
-        <div class="region-badge" id="region-badge">Loading Region...</div>
-        
-        <div>
-            <button onclick="writeDocument()">1. Write Document</button>
-            <button onclick="readDocument()">2. Read (Enter ID below)</button>
-        </div>
-        
-        <div style="margin-top: 15px;">
-            <input type="text" id="docId" placeholder="Document ID will appear here" style="width: 100%; padding: 8px; box-sizing: border-box;">
-        </div>
 
-        <div class="log" id="console">Ready...</div>
+<div class="container">
+    <h1>🏆 India vs. NZ Final Poll</h1>
+    <div class="region-badge" id="region-badge">Connecting...</div>
+
+    <div class="vote-grid">
+        <button onclick="castVote('Jasprit Bumrah')">Vote Bumrah</button>
+        <button onclick="castVote('Hardik Pandya')">Vote Pandya</button>
+        <button onclick="castVote('Sanju Samson')">Vote Samson</button>
+        <button onclick="castVote('Ishan Kishan')">Vote Kishan</button>
     </div>
 
-    <script>
-        // Fetch App Service Region on load
-        fetch('/api/info')
-            .then(res => res.json())
-            .then(data => { document.getElementById('region-badge').innerText = "Serving from: " + data.appServiceRegion; });
+    <h2>Live Results</h2>
+    <table id="resultsTable">
+        <thead>
+            <tr>
+                <th>Player Name</th>
+                <th>Total Votes</th>
+            </tr>
+        </thead>
+        <tbody id="resultsBody">
+            <tr><td colspan="2" style="text-align: center;">Loading results...</td></tr>
+        </tbody>
+    </table>
+</div>
 
-        function log(message) {
-            document.getElementById('console').innerText = message + "\n" + document.getElementById('console').innerText;
+<script>
+    // Get the region hosting this instance
+    fetch('/api/info')
+        .then(res => res.json())
+        .then(data => { 
+            document.getElementById('region-badge').innerText = "📍 Server Region: " + data.appServiceRegion; 
+        });
+
+    // Cast a vote to the local Cosmos replica
+    async function castVote(player) {
+        await fetch(`/api/vote/${encodeURIComponent(player)}`, { method: 'POST' });
+        fetchResults(); // Instantly update local table
+    }
+
+    // Fetch aggregated results and render the HTML table
+    async function fetchResults() {
+        const res = await fetch('/api/results');
+        const data = await res.json();
+        
+        const tbody = document.getElementById('resultsBody');
+        tbody.innerHTML = ''; // Clear current rows
+
+        if (data.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="2" style="text-align: center;">No votes yet!</td></tr>';
+            return;
         }
 
-        async function writeDocument() {
-            log("Writing document...");
-            const res = await fetch('/api/write', { method: 'POST' });
-            const data = await res.json();
-            document.getElementById('docId').value = data.id;
-            log(`[WRITE] Region: ${data.region} | Latency: ${data.latencyMs}ms | ID: ${data.id}`);
-        }
+        // Sort by highest votes
+        data.sort((a, b) => b.votes - a.votes);
 
-        async function readDocument() {
-            const id = document.getElementById('docId').value;
-            if(!id) return alert("Please write a document first or enter an ID.");
+        data.forEach(item => {
+            const tr = document.createElement('tr');
             
-            log(`Reading document ${id}...`);
-            const res = await fetch(`/api/read/${id}`);
-            const data = await res.json();
+            const tdName = document.createElement('td');
+            tdName.innerText = item.playerName;
             
-            if(res.ok) {
-                log(`[READ] Region: ${data.region} | Latency: ${data.latencyMs}ms | Message: ${data.data.message}`);
-            } else {
-                log(`[READ FAILED] Latency: ${data.latencyMs}ms | ${data.message}`);
-            }
-        }
-    </script>
+            const tdVotes = document.createElement('td');
+            tdVotes.className = 'vote-count';
+            tdVotes.innerText = item.votes;
+
+            tr.appendChild(tdName);
+            tr.appendChild(tdVotes);
+            tbody.appendChild(tr);
+        });
+    }
+
+    // Auto-refresh the HTML table every 2 seconds to show cross-region replication
+    setInterval(fetchResults, 2000);
+    fetchResults(); // Initial load
+</script>
+
 </body>
 </html>
