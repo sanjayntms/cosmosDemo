@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cosmos DB Consistency Simulator</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; background: #f3f2f1; text-align: center;}
+        .controls { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); max-width: 600px; margin: 0 auto 30px; }
+        .regions { display: flex; justify-content: center; gap: 20px; flex-wrap: wrap; }
+        .region { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); width: 220px; }
+        .data-value { font-size: 54px; font-weight: bold; color: #0078d4; margin: 20px 0; transition: color 0.3s; }
+        .flash { color: #28a745 !important; }
+        button { background: #0078d4; color: white; border: none; padding: 12px 24px; cursor: pointer; border-radius: 4px; font-size: 16px; margin-top: 15px; font-weight: bold;}
+        button:hover { background: #106ebe; }
+        button:disabled { background: #c8c8c8; cursor: not-allowed; }
+        label { margin: 0 10px; font-size: 16px; cursor: pointer; padding: 5px;}
+        h3 { color: #323130; margin-top: 0; }
+    </style>
+</head>
+<body>
+
+    <div class="controls">
+        <h2>Database Consistency Model</h2>
+        <div style="margin: 15px 0;">
+            <label><input type="radio" name="consistency" value="strong"> Strong</label>
+            <label><input type="radio" name="consistency" value="session" checked> Session (Azure Default)</label>
+            <label><input type="radio" name="consistency" value="eventual"> Eventual</label>
+        </div>
+        <button id="writeBtn" onclick="writeData()">Write Data (Send to Australia)</button>
+        <div id="status" style="margin-top: 15px; color: #d13438; font-weight: bold; height: 20px;">Ready</div>
+    </div>
+
+    <div class="regions">
+        <div class="region">
+            <h3>🇦🇺 Australia East</h3>
+            <div style="color: #605e5c; font-size: 14px;">(Local Replica)</div>
+            <div class="data-value" id="val-aus">0</div>
+        </div>
+        <div class="region">
+            <h3>🇮🇳 Central India</h3>
+            <div style="color: #605e5c; font-size: 14px;">(Remote Replica)</div>
+            <div class="data-value" id="val-ind">0</div>
+        </div>
+        <div class="region">
+            <h3>🇺🇸 East US</h3>
+            <div style="color: #605e5c; font-size: 14px;">(Remote Replica)</div>
+            <div class="data-value" id="val-us">0</div>
+        </div>
+    </div>
+
+    <script>
+        let globalData = 0;
+
+        function updateDisplay(regionId, newValue) {
+            const el = document.getElementById(regionId);
+            el.innerText = newValue;
+            
+            // Flash the number green to show an update just arrived
+            el.classList.add('flash');
+            setTimeout(() => el.classList.remove('flash'), 500);
+        }
+
+        function writeData() {
+            const consistency = document.querySelector('input[name="consistency"]:checked').value;
+            const btn = document.getElementById('writeBtn');
+            const status = document.getElementById('status');
+            
+            globalData++;
+            const newValue = globalData;
+
+            if (consistency === 'strong') {
+                btn.disabled = true;
+                status.innerText = "Locking system. Waiting for all regions to sync...";
+                
+                // Strong consistency forces the user to wait for global replication
+                setTimeout(() => {
+                    updateDisplay('val-aus', newValue);
+                    updateDisplay('val-ind', newValue);
+                    updateDisplay('val-us', newValue);
+                    status.innerText = "Write confirmed globally. Success!";
+                    btn.disabled = false;
+                }, 2000);
+            } 
+            else if (consistency === 'session') {
+                status.innerText = "Local success! Replicating to other regions...";
+                
+                // Session updates the local node instantly
+                updateDisplay('val-aus', newValue);
+                
+                // Remote nodes get the data very quickly
+                setTimeout(() => updateDisplay('val-ind', newValue), 600);
+                setTimeout(() => updateDisplay('val-us', newValue), 900);
+            }
+            else if (consistency === 'eventual') {
+                status.innerText = "Local success! Background replication queued...";
+                
+                // Eventual updates the local node instantly
+                updateDisplay('val-aus', newValue);
+                
+                // Remote nodes experience high, randomized lag
+                setTimeout(() => updateDisplay('val-ind', newValue), 1500 + (Math.random() * 1500));
+                setTimeout(() => updateDisplay('val-us', newValue), 2500 + (Math.random() * 2000));
+            }
+        }
+    </script>
+</body>
+</html>
