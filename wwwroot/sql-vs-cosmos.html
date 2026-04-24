@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Azure SQL vs Cosmos DB Simulator</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f0f2f5; color: #333; padding: 20px; }
+        .container { max-width: 1000px; margin: auto; }
+        
+        /* Header & Controls */
+        .header { background: white; padding: 25px; border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); text-align: center; margin-bottom: 20px; border-top: 5px solid #0078d4; }
+        .engine-toggle { margin: 15px 0; font-size: 18px; font-weight: bold; }
+        .engine-toggle label { cursor: pointer; padding: 10px 20px; border-radius: 5px; transition: 0.2s; }
+        .engine-toggle label:hover { background: #e9ecef; }
+        
+        .actions { display: flex; justify-content: center; gap: 15px; margin-top: 20px; flex-wrap: wrap; }
+        button { padding: 12px 20px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 15px; transition: 0.2s; }
+        .btn-standard { background: #0078d4; color: white; }
+        .btn-standard:hover { background: #005a9e; }
+        .btn-custom { background: #28a745; color: white; }
+        .btn-custom:hover { background: #1e7e34; }
+        .btn-spike { background: #d13438; color: white; }
+        .btn-spike:hover { background: #a4262c; }
+        button:disabled { background: #c8c8c8; cursor: not-allowed; }
+
+        /* Visualization Area */
+        .visualization { background: white; padding: 40px; border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); min-height: 250px; display: flex; align-items: center; justify-content: center; margin-bottom: 20px; }
+        
+        /* SQL Server Styles */
+        .sql-server { border: 4px solid #0078d4; border-radius: 8px; padding: 20px; text-align: center; width: 200px; background: #f8f9fa; transition: all 0.5s ease; position: relative; }
+        .load-bar-container { background: #e9ecef; height: 20px; border-radius: 10px; overflow: hidden; margin-top: 15px; }
+        .load-bar { height: 100%; width: 0%; background: #28a745; transition: width 0.3s, background 0.3s; }
+        
+        /* Cosmos Nodes Styles */
+        .cosmos-cluster { display: flex; gap: 15px; flex-wrap: wrap; justify-content: center; }
+        .cosmos-node { border: 3px dashed #107c10; border-radius: 8px; padding: 15px; text-align: center; width: 120px; background: #f3fcf3; animation: fadeIn 0.5s; }
+        @keyframes fadeIn { from { opacity: 0; transform: scale(0.8); } to { opacity: 1; transform: scale(1); } }
+
+        /* Event Log */
+        .log-console { background: #1e1e1e; color: #d4d4d4; padding: 20px; border-radius: 10px; font-family: monospace; height: 200px; overflow-y: auto; box-shadow: inset 0 4px 8px rgba(0,0,0,0.3); }
+        .log-entry { margin-bottom: 8px; border-bottom: 1px solid #333; padding-bottom: 4px; }
+        .text-error { color: #f48771; }
+        .text-success { color: #60c553; }
+        .text-warning { color: #f8cc82; }
+
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="header">
+        <h2 style="margin-top: 0; color: #1a365d;">Database Architecture Simulator</h2>
+        <div class="engine-toggle">
+            <label><input type="radio" name="dbEngine" value="sql" checked onchange="switchEngine()"> 🗄️ Azure SQL (Relational)</label>
+            <label><input type="radio" name="dbEngine" value="cosmos" onchange="switchEngine()"> 🌐 Azure Cosmos DB (NoSQL)</label>
+        </div>
+        
+        <div class="actions">
+            <button class="btn-standard" id="btn-std" onclick="addStandardData()">+ Add Standard Data</button>
+            <button class="btn-custom" id="btn-cust" onclick="addCustomData()">+ Add Data with New Columns</button>
+            <button class="btn-spike" id="btn-spike" onclick="triggerSpike()">⚡ Trigger Traffic Spike</button>
+            <button class="btn-standard" id="btn-scale" onclick="scaleUpSQL()" style="display: none; background: #ffb900; color: #333;">⬆️ Scale Up Server (Pay More)</button>
+        </div>
+    </div>
+
+    <div class="visualization" id="visual-area">
+        </div>
+
+    <div class="log-console" id="log-window">
+        <div class="log-entry">System ready. Select a database engine to begin.</div>
+    </div>
+</div>
+
+<script>
+    let currentEngine = 'sql';
+    
+    // SQL State
+    let sqlLoad = 0;
+    let sqlIsBottlenecked = false;
+    let sqlServerSize = 1;
+
+    // Cosmos State
+    let cosmosNodes = 1;
+    let cosmosLoadPerNode = 0;
+
+    function log(message, type = '') {
+        const logWindow = document.getElementById('log-window');
+        const timestamp = new Date().toLocaleTimeString();
+        const entry = document.createElement('div');
+        entry.className = `log-entry ${type}`;
+        entry.innerText = `[${timestamp}] ${message}`;
+        logWindow.prepend(entry);
+    }
+
+    function switchEngine() {
+        currentEngine = document.querySelector('input[name="dbEngine"]:checked').value;
+        
+        // Reset States
+        sqlLoad = 0; sqlIsBottlenecked = false; sqlServerSize = 1;
+        cosmosNodes = 1; cosmosLoadPerNode = 0;
+        
+        document.getElementById('btn-scale').style.display = 'none';
+        document.getElementById('btn-std').disabled = false;
+        document.getElementById('btn-cust').disabled = false;
+        document.getElementById('btn-spike').disabled = false;
+
+        log(`--- Switched architecture to ${currentEngine.toUpperCase()} ---`, 'text-warning');
+        renderVisualization();
+    }
+
+    function renderVisualization() {
+        const viz = document.getElementById('visual-area');
+        viz.innerHTML = '';
+
+        if (currentEngine === 'sql') {
+            const width = 200 + (sqlServerSize * 50); // Server physically grows
+            const color = sqlLoad >= 100 ? '#d13438' : (sqlLoad > 60 ? '#ffb900' : '#28a745');
+            
+            viz.innerHTML = `
+                <div class="sql-server" style="width: ${width}px;">
+                    <h3>Azure SQL Server</h3>
+                    <div style="font-size: 12px; color: #666;">Fixed Schema | Vertical Scaling</div>
+                    <div class="load-bar-container">
+                        <div class="load-bar" style="width: ${Math.min(sqlLoad, 100)}%; background: ${color};"></div>
+                    </div>
+                    <div style="margin-top: 5px; font-weight: bold;">CPU Load: ${Math.min(sqlLoad, 100)}%</div>
+                </div>
+            `;
+        } else {
+            let nodesHtml = '';
+            const color = cosmosLoadPerNode >= 100 ? '#d13438' : (cosmosLoadPerNode > 60 ? '#ffb900' : '#28a745');
+            
+            for(let i = 0; i < cosmosNodes; i++) {
+                nodesHtml += `
+                    <div class="cosmos-node">
+                        <h4>Partition ${i+1}</h4>
+                        <div class="load-bar-container">
+                            <div class="load-bar" style="width: ${Math.min(cosmosLoadPerNode, 100)}%; background: ${color};"></div>
+                        </div>
+                        <div style="font-size: 12px; margin-top: 5px;">Load: ${Math.min(cosmosLoadPerNode, 100)}%</div>
+                    </div>
+                `;
+            }
+            viz.innerHTML = `<div class="cosmos-cluster">${nodesHtml}</div>`;
+        }
+    }
+
+    function addStandardData() {
+        if (currentEngine === 'sql') {
+            if (sqlIsBottlenecked) return log("Write Failed: Server CPU maxed out. Please scale up.", "text-error");
+            sqlLoad += 15;
+            log("SUCCESS: Inserted row into structured table.", "text-success");
+            if (sqlLoad >= 100) triggerSQLBottleneck();
+            else renderVisualization();
+        } else {
+            cosmosLoadPerNode += 10;
+            log("SUCCESS: Inserted standard JSON document to Partition.", "text-success");
+            checkCosmosScale();
+        }
+    }
+
+    function addCustomData() {
+        if (currentEngine === 'sql') {
+            log("ERROR: Invalid Column Name 'gamingProfile'. Schema validation failed.", "text-error");
+        } else {
+            cosmosLoadPerNode += 10;
+            log("SUCCESS: Inserted custom shape JSON document safely. No schema restrictions.", "text-success");
+            checkCosmosScale();
+        }
+    }
+
+    function triggerSpike() {
+        log("Incoming Traffic Spike: 10,000 requests per second!", "text-warning");
+        
+        if (currentEngine === 'sql') {
+            sqlLoad += 150;
+            triggerSQLBottleneck();
+        } else {
+            // Cosmos Auto-Scales Out horizontally
+            cosmosNodes += 2; 
+            cosmosLoadPerNode = 40; // Load redistributes perfectly
+            log("Cosmos DB Auto-Scale: Dynamically spawned 2 new physical partitions to handle the load.", "text-success");
+            renderVisualization();
+        }
+    }
+
+    function triggerSQLBottleneck() {
+        sqlIsBottlenecked = true;
+        log("CRITICAL: Azure SQL CPU at 100%. Database is throttling writes. Manual intervention required.", "text-error");
+        document.getElementById('btn-std').disabled = true;
+        document.getElementById('btn-cust').disabled = true;
+        document.getElementById('btn-spike').disabled = true;
+        document.getElementById('btn-scale').style.display = 'inline-block';
+        renderVisualization();
+    }
+
+    function scaleUpSQL() {
+        sqlServerSize++;
+        sqlLoad = 20; // Server is bigger, so load percentage drops
+        sqlIsBottlenecked = false;
+        
+        document.getElementById('btn-std').disabled = false;
+        document.getElementById('btn-cust').disabled = false;
+        document.getElementById('btn-spike').disabled = false;
+        document.getElementById('btn-scale').style.display = 'none';
+        
+        log("Scaled Up: You are now paying for a larger Azure SQL Server instance. Capacity restored.", "text-success");
+        renderVisualization();
+    }
+
+    // Initialize first render
+    switchEngine();
+</script>
+
+</body>
+</html>
