@@ -188,6 +188,8 @@ for(let i = 0; i < 200; i++) {
 ---
 
 ## 🔄 Architecture & Visual Data Flow
+Browse this for simulation:
+https://app-cosmosdemo-india-unique123.azurewebsites.net/cosmos.html
 
 When a user interacts with the Fan Poll, the data follows a specific global journey. Here is the exact flow of a single vote cast in Australia and viewed in India:
 
