@@ -187,6 +187,17 @@ for(let i = 0; i < 200; i++) {
 
 ---
 
+## 🔄 Architecture & Visual Data Flow
+
+When a user interacts with the Fan Poll, the data follows a specific global journey. Here is the exact flow of a single vote cast in Australia and viewed in India:
+
+1. **The Trigger:** A user in Sydney clicks "Vote Bumrah" on the Australia East web UI.
+2. **Local API Hit:** The browser sends a `POST` request to the Australia East Azure App Service.
+3. **Local Database Write (~20ms):** The .NET SDK writes the vote directly to the Cosmos DB replica physically located in the Australia East datacenter. The UI immediately reports a "Write Latency" of ~20ms.
+4. **Global Replication (Background):** Azure's internal fiber-optic backbone takes over. Cosmos DB asynchronously ships that new record across the ocean to the Central India datacenter. (The speed of this transfer depends on your chosen Consistency Model).
+5. **Remote Read:** Meanwhile, the browser in Mumbai is asking its local Central India App Service for the latest totals every 500 milliseconds. 
+6. **The Visual Sync:** Once the replication batch arrives in India, the Central India App Service pulls the updated totals from its local database replica and sends them to the Mumbai browser. The UI table flashes green, confirming the global synchronization is complete.
+
 ## 📌 Author
 
 **Sanjay NTMS**
