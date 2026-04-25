@@ -9,10 +9,25 @@ var appRegion = builder.Configuration["APP_REGION"] ?? "Local";
 var databaseId = builder.Configuration["DATABASE_NAME"] ?? "DemoDB";
 var containerId = builder.Configuration["CONTAINER_NAME"] ?? "DemoContainer";
 
-// 2. Configure Cosmos Client for Local Region
-var cosmosClientOptions = new CosmosClientOptions { ApplicationRegion = appRegion };
+// 2. Configure Cosmos Client with Automatic Regional Failover (Circuit Breaker)
+var cosmosClientOptions = new CosmosClientOptions 
+{ 
+    // The SDK will attempt the regions in this exact order.
+    // If the local region goes down, it automatically falls back to the next one in the list.
+    ApplicationPreferredRegions = new List<string> 
+    { 
+        appRegion,          // Priority 1: Always try the local datacenter first
+        "Central India",    // Priority 2: Fallback to India if local is down
+        "East US"           // Priority 3: Ultimate fallback (if you added a 3rd region)
+    },
+    
+    // Optional but recommended for demos: Lower the timeout so it fails over faster
+    RequestTimeout = TimeSpan.FromSeconds(5),
+    
+    // The SDK's internal circuit breaker will handle the retries across regions
+    MaxRetryAttemptsOnRateLimitedRequests = 3
+};
 var cosmosClient = new CosmosClient(endpoint, key, cosmosClientOptions);
-builder.Services.AddSingleton(cosmosClient);
 
 var app = builder.Build();
 
