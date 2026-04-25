@@ -30,6 +30,9 @@ var cosmosClientOptions = new CosmosClientOptions
 };
 var cosmosClient = new CosmosClient(endpoint, key, cosmosClientOptions);
 
+// THE FIX: Register the CosmosClient into memory so the APIs can find it!
+builder.Services.AddSingleton(cosmosClient);
+
 var app = builder.Build();
 
 // 4. Serve Frontend UI (Optimized for Azure Linux App Services)
