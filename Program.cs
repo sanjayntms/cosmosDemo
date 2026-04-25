@@ -38,6 +38,7 @@ app.MapGet("/", () => Results.Content(File.ReadAllText("wwwroot/index.html"), "t
 app.MapGet("/api/info", () => Results.Ok(new { AppServiceRegion = appRegion }));
 
 // 5. API: Submit a Vote (Dynamic Partition Key)
+// 5. API: Submit a Vote (WITH CIRCUIT BREAKER DIAGNOSTICS)
 app.MapPost("/api/vote/{matchName}/{player}", async (CosmosClient client, string matchName, string player) =>
 {
     var container = client.GetContainer(databaseId, containerId);
@@ -50,8 +51,21 @@ app.MapPost("/api/vote/{matchName}/{player}", async (CosmosClient client, string
         timestamp = DateTime.UtcNow 
     };
     
-    await container.CreateItemAsync(doc, new PartitionKey(matchName));
-    return Results.Ok();
+    try 
+    {
+        // Try to cast the vote
+        ItemResponse<dynamic> response = await container.CreateItemAsync<dynamic>(doc, new PartitionKey(matchName));
+        return Results.Ok(new { message = "Success", diagnostics = response.Diagnostics.ToString() });
+    }
+    catch (CosmosException ex)
+    {
+        // If the circuit breaker fails, catch the error and print the internal routing log
+        return Results.Problem(
+            title: "Circuit Breaker / Routing Failure", 
+            detail: ex.Diagnostics.ToString(), 
+            statusCode: (int)ex.StatusCode
+        );
+    }
 });
 
 // 6. API: Get Aggregated Results (Dynamic Partition Key)
