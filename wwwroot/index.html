@@ -42,7 +42,16 @@
         <button onclick="castVote('Sanju Samson')">Vote Samson</button>
         <button onclick="castVote('Ishan Kishan')">Vote Kishan</button>
     </div>
-
+   
+    <div style="margin-bottom: 20px; text-align: center;">
+    <label for="matchSelect" style="font-weight: bold; margin-right: 10px;">Select Match (Partition Key):</label>
+    <select id="matchSelect" onchange="fetchResults()" style="padding: 8px; border-radius: 4px; font-size: 16px;">
+        <option value="IndVsNzFinal">🇮🇳 India vs NZ (Final)</option>
+        <option value="AusVsEngAshes">🇦🇺 Aus vs Eng (Ashes)</option>
+        <option value="PakVsAfgT20">🇵🇰 Pak vs Afg (T20)</option>
+    </select>
+</div> 
+   
     <h2>Live Results</h2>
     <table id="resultsTable">
         <thead>
@@ -58,6 +67,7 @@
 </div>
 
 <script>
+    // 1. Fetch and display the Server Region
     fetch('/api/info')
         .then(res => res.json())
         .then(data => { 
@@ -66,11 +76,16 @@
 
     let previousVotes = {};
 
+    // 2. Submit a Vote
     async function castVote(player) {
+        // Get the active logical partition from the dropdown
+        const matchName = document.getElementById('matchSelect').value; 
+        
         // Start the timer for the Write operation
         const startWrite = performance.now();
         
-        await fetch(`/api/vote/${encodeURIComponent(player)}`, { method: 'POST' });
+        // Pass both the matchName (Partition Key) and player to the API
+        await fetch(`/api/vote/${encodeURIComponent(matchName)}/${encodeURIComponent(player)}`, { method: 'POST' });
         
         // Stop the timer and update the UI
         const endWrite = performance.now();
@@ -79,11 +94,16 @@
         fetchResults(); 
     }
 
+    // 3. Fetch Results
     async function fetchResults() {
+        // Get the active logical partition from the dropdown
+        const matchName = document.getElementById('matchSelect').value; 
+        
         // Start the timer for the Read operation
         const startRead = performance.now();
         
-        const res = await fetch('/api/results');
+        // Request results only for the currently selected Match Name
+        const res = await fetch(`/api/results/${encodeURIComponent(matchName)}`);
         const data = await res.json();
         
         // Stop the timer and update the UI
@@ -93,18 +113,22 @@
         const tbody = document.getElementById('resultsBody');
         tbody.innerHTML = ''; 
 
+        // Handle empty states (like when switching to a brand new match)
         if (data.length === 0) {
             tbody.innerHTML = '<tr><td colspan="2" style="text-align: center;">No votes yet!</td></tr>';
             return;
         }
 
+        // Sort players by highest votes
         data.sort((a, b) => b.votes - a.votes);
 
         data.forEach(item => {
             const tr = document.createElement('tr');
             
+            // Check if this specific player's vote count went up
             const didChange = previousVotes[item.playerName] !== undefined && previousVotes[item.playerName] !== item.votes;
             
+            // If it changed, add a temporary visual highlight
             if (didChange) {
                 tr.style.backgroundColor = '#d4edda'; 
                 tr.style.transition = 'background-color 0.5s ease';
@@ -122,11 +146,15 @@
             tr.appendChild(tdVotes);
             tbody.appendChild(tr);
 
+            // Update the tracker for the next cycle
             previousVotes[item.playerName] = item.votes;
         });
     }
 
+    // 4. Start the polling loop (Check for updates every 500ms)
     setInterval(fetchResults, 500);
+    
+    // Initial fetch on page load
     fetchResults(); 
 </script>
 

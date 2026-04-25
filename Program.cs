@@ -21,24 +21,47 @@ app.UseStaticFiles();
 app.MapGet("/", () => Results.Content(File.ReadAllText("wwwroot/index.html"), "text/html"));
 app.MapGet("/api/info", () => Results.Ok(new { AppServiceRegion = appRegion }));
 
-// 4. API: Submit a Vote
-app.MapPost("/api/vote/{player}", async (CosmosClient client, string player) =>
+// 4. API: Submit a Vote (Dynamic Partition Key)
+app.MapPost("/api/vote/{matchName}/{player}", async (CosmosClient client, string matchName, string player) =>
 {
     var container = client.GetContainer(databaseId, containerId);
     
-    // Using a static partition key for the final poll to group all votes
     var doc = new { 
         id = Guid.NewGuid().ToString(), 
-        partitionKey = "IndVsNzFinal", 
+        partitionKey = matchName, // The dynamic logical folder!
         playerName = player, 
         region = appRegion, 
         timestamp = DateTime.UtcNow 
     };
     
-    await container.CreateItemAsync(doc, new PartitionKey("IndVsNzFinal"));
+    await container.CreateItemAsync(doc, new PartitionKey(matchName));
     return Results.Ok();
 });
 
+// 5. API: Get Aggregated Results (Dynamic Partition Key)
+app.MapGet("/api/results/{matchName}", async (CosmosClient client, string matchName) =>
+{
+    var container = client.GetContainer(databaseId, containerId);
+    
+    // Parameterized query for safety
+    var query = new QueryDefinition(
+        "SELECT c.playerName, COUNT(1) as votes FROM c WHERE c.partitionKey = @match GROUP BY c.playerName"
+    ).WithParameter("@match", matchName);
+    
+    var iterator = container.GetItemQueryIterator<VoteResult>(
+        query, 
+        requestOptions: new QueryRequestOptions { PartitionKey = new PartitionKey(matchName) }
+    );
+    
+    var results = new List<VoteResult>(); 
+    while (iterator.HasMoreResults)
+    {
+        var response = await iterator.ReadNextAsync();
+        results.AddRange(response);
+    }
+    
+    return Results.Ok(results);
+});
 // 5. API: Get Aggregated Results (Using Strongly Typed Class)
 app.MapGet("/api/results", async (CosmosClient client) =>
 {
