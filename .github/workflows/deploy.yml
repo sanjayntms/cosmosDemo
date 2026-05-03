@@ -52,8 +52,8 @@ jobs:
             echo "1. Creating Resource Group..."
             az group create --name ${{ matrix.target.rg }} --location ${{ matrix.target.location }}
 
-            echo "2. Creating Linux App Service Plan (B1 Tier)..."
-            az appservice plan create --name ${{ matrix.target.plan }} --resource-group ${{ matrix.target.rg }} --sku B1 --is-linux
+            echo "2. Creating Linux App Service Plan (S1 Tier)..."
+            az appservice plan create --name ${{ matrix.target.plan }} --resource-group ${{ matrix.target.rg }} --sku S1 --is-linux
 
             echo "3. Creating Web App..."
             az webapp create --name ${{ matrix.target.app }} --resource-group ${{ matrix.target.rg }} --plan ${{ matrix.target.plan }} --runtime "DOTNETCORE|8.0"
